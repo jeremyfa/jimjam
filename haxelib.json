@@ -1,0 +1,22 @@
+{
+    "name": "jimjam",
+    "url": "https://github.com/jeremyfa/jimjam",
+    "license": "MIT",
+    "tags": [
+        "database",
+        "nosql",
+        "sqlite",
+        "document",
+        "mongodb",
+        "storage",
+        "collection",
+        "query",
+        "json"
+    ],
+    "description": "A flexible, MongoDB-style NoSQL document database built on SQLite for Haxe applications.",
+    "version": "1.0.0",
+    "classPath": "src/",
+    "releasenote": "Initial release of Jimjam - MongoDB-style NoSQL document database for Haxe with SQLite backend",
+    "contributors": ["jeremyfa"],
+    "dependencies": {}
+}

@@ -38,6 +38,8 @@ A flexible, MongoDB-style document database built on SQLite for Haxe application
 haxelib install jimjam
 ```
 
+**Supported Targets**: Currently tested on PHP and C++ (including CPPIA) targets.
+
 ## Quick Start
 
 ```haxe
