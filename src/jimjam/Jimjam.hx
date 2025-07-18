@@ -9,8 +9,8 @@ using StringTools;
 
 typedef Document = {
     ?_id: String,
-    ?_createdAt: Float,
-    ?_updatedAt: Float
+    ?_createdAt: Date,
+    ?_updatedAt: Date
 }
 typedef Query = Dynamic;
 typedef IndexDef = {
@@ -21,10 +21,11 @@ typedef IndexDef = {
 
 enum FieldType {
     FTInteger;
-    FTReal;
+    FTFloat;
     FTText;
     FTBoolean;
     FTJson;
+    FTDate;
 }
 
 /**
@@ -307,6 +308,156 @@ class Collection<T = Dynamic<Dynamic>> {
     }
 
     /**
+     * Converts a Date to UTC string in YYYY-MM-DD HH:MM:SS format
+     * Pure Haxe implementation to avoid timezone issues
+     */
+    private static function dateToUTCString(date: Date): String {
+        // Get timestamp in milliseconds
+        var timestamp = date.getTime();
+
+        // Calculate total seconds since epoch
+        var totalSeconds = Math.floor(timestamp / 1000);
+
+        // Calculate components
+        var secondsPerMinute = 60;
+        var secondsPerHour = 3600;
+        var secondsPerDay = 86400;
+
+        // Days since Unix epoch (1970-01-01)
+        var days = Math.floor(totalSeconds / secondsPerDay);
+        var remainingSeconds = totalSeconds % secondsPerDay;
+
+        // Time components
+        var hours = Math.floor(remainingSeconds / secondsPerHour);
+        var minutes = Math.floor((remainingSeconds % secondsPerHour) / secondsPerMinute);
+        var seconds = remainingSeconds % secondsPerMinute;
+
+        // Calculate year, month, day
+        var year = 1970;
+        var month = 1;
+        var day = 1;
+
+        // Add days to get actual date
+        var daysRemaining = days;
+
+        // Leap year calculation
+        function isLeapYear(y: Int): Bool {
+            return (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0);
+        }
+
+        // Days in month
+        function daysInMonth(m: Int, y: Int): Int {
+            return switch(m) {
+                case 1, 3, 5, 7, 8, 10, 12: 31;
+                case 4, 6, 9, 11: 30;
+                case 2: isLeapYear(y) ? 29 : 28;
+                default: 0;
+            }
+        }
+
+        // Calculate year
+        while (true) {
+            var daysInYear = isLeapYear(year) ? 366 : 365;
+            if (daysRemaining >= daysInYear) {
+                daysRemaining -= daysInYear;
+                year++;
+            } else {
+                break;
+            }
+        }
+
+        // Calculate month and day
+        while (daysRemaining > 0) {
+            var daysInCurrentMonth = daysInMonth(month, year);
+            if (daysRemaining >= daysInCurrentMonth) {
+                daysRemaining -= daysInCurrentMonth;
+                month++;
+                if (month > 12) {
+                    month = 1;
+                    year++;
+                }
+            } else {
+                day = daysRemaining + 1;
+                break;
+            }
+        }
+
+        // Format components with padding
+        var yearStr = Std.string(year);
+        var monthStr = month < 10 ? "0" + month : Std.string(month);
+        var dayStr = day < 10 ? "0" + day : Std.string(day);
+        var hourStr = hours < 10 ? "0" + hours : Std.string(hours);
+        var minuteStr = minutes < 10 ? "0" + minutes : Std.string(minutes);
+        var secondStr = seconds < 10 ? "0" + seconds : Std.string(seconds);
+
+        return '$yearStr-$monthStr-$dayStr $hourStr:$minuteStr:$secondStr';
+    }
+
+    /**
+     * Parses UTC string in YYYY-MM-DD HH:MM:SS format to Date
+     * Pure Haxe implementation to avoid timezone issues
+     */
+    private static function utcStringToDate(str: String): Date {
+        // Parse the string
+        var parts = str.split(" ");
+        if (parts.length != 2) return null;
+
+        var dateParts = parts[0].split("-");
+        var timeParts = parts[1].split(":");
+
+        if (dateParts.length != 3 || timeParts.length != 3) return null;
+
+        var year = Std.parseInt(dateParts[0]);
+        var month = Std.parseInt(dateParts[1]);
+        var day = Std.parseInt(dateParts[2]);
+        var hour = Std.parseInt(timeParts[0]);
+        var minute = Std.parseInt(timeParts[1]);
+        var second = Std.parseInt(timeParts[2]);
+
+        // Validate parsed values
+        if (year == null || month == null || day == null ||
+            hour == null || minute == null || second == null) {
+            return null;
+        }
+
+        // Calculate days since epoch
+        var totalDays = 0;
+
+        // Add days for complete years
+        for (y in 1970...year) {
+            totalDays += isLeapYear(y) ? 366 : 365;
+        }
+
+        // Add days for complete months in current year
+        for (m in 1...month) {
+            totalDays += daysInMonth(m, year);
+        }
+
+        // Add remaining days
+        totalDays += day - 1;
+
+        // Calculate total seconds
+        var totalSeconds = totalDays * 86400 + hour * 3600 + minute * 60 + second;
+
+        // Convert to milliseconds and create Date
+        return Date.fromTime(totalSeconds * 1000.0);
+    }
+
+    // Helper functions for date calculations
+    private static function isLeapYear(y: Int): Bool {
+        return (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0);
+    }
+
+    private static function daysInMonth(m: Int, y: Int): Int {
+        return switch(m) {
+            case 1, 3, 5, 7, 8, 10, 12: 31;
+            case 4, 6, 9, 11: 30;
+            case 2: isLeapYear(y) ? 29 : 28;
+            default: 0;
+        }
+    }
+
+    /**
      * Initializes the collection tables and triggers
      */
     private function initializeTables(): Void {
@@ -352,6 +503,40 @@ class Collection<T = Dynamic<Dynamic>> {
             var typeSql = 'INSERT OR IGNORE INTO ${tableName}_types (field_name, field_type) VALUES (?, ?)';
             executeQuery(typeSql, [field.name, field.type]);
         }
+
+        // Create automatic indexes for timestamp fields
+        createAutomaticIndexes();
+    }
+
+    /**
+     * Creates automatic indexes for built-in timestamp fields
+     */
+    private function createAutomaticIndexes(): Void {
+        // Create index for _createdAt if it doesn't exist
+        var createdAtIndexName = 'idx_${tableName}_created';
+        try {
+            var sql = 'CREATE INDEX IF NOT EXISTS $createdAtIndexName ON $tableName (_createdAt)';
+            executeDDL(sql);
+
+            // Store index metadata
+            var indexSql = 'INSERT OR IGNORE INTO ${tableName}_indexes (index_name, field_names, is_unique) VALUES (?, ?, ?)';
+            executeDDL(indexSql, [createdAtIndexName, '["_createdAt"]', 0]);
+        } catch (e: Dynamic) {
+            // Index might already exist, ignore error
+        }
+
+        // Create index for _updatedAt if it doesn't exist
+        var updatedAtIndexName = 'idx_${tableName}_updated';
+        try {
+            var sql = 'CREATE INDEX IF NOT EXISTS $updatedAtIndexName ON $tableName (_updatedAt)';
+            executeDDL(sql);
+
+            // Store index metadata
+            var indexSql = 'INSERT OR IGNORE INTO ${tableName}_indexes (index_name, field_names, is_unique) VALUES (?, ?, ?)';
+            executeDDL(indexSql, [updatedAtIndexName, '["_updatedAt"]', 0]);
+        } catch (e: Dynamic) {
+            // Index might already exist, ignore error
+        }
     }
 
 
@@ -382,10 +567,11 @@ class Collection<T = Dynamic<Dynamic>> {
     private function parseFieldType(typeStr: String): FieldType {
         return switch (typeStr) {
             case "INTEGER": FTInteger;
-            case "REAL": FTReal;
+            case "FLOAT": FTFloat;
             case "TEXT": FTText;
             case "BOOLEAN": FTBoolean;
             case "JSON": FTJson;
+            case "DATE": FTDate;
             default: FTText;
         };
     }
@@ -396,10 +582,11 @@ class Collection<T = Dynamic<Dynamic>> {
     private function fieldTypeToString(type: FieldType): String {
         return switch (type) {
             case FTInteger: "INTEGER";
-            case FTReal: "REAL";
+            case FTFloat: "FLOAT";
             case FTText: "TEXT";
             case FTBoolean: "BOOLEAN";
             case FTJson: "JSON";
+            case FTDate: "DATE";
         };
     }
 
@@ -409,9 +596,14 @@ class Collection<T = Dynamic<Dynamic>> {
     private function detectFieldType(value: Dynamic): FieldType {
         if (value == null) return FTText;
 
+        // Check if it's a Date object
+        if (Std.isOfType(value, Date)) {
+            return FTDate;
+        }
+
         switch (Type.typeof(value)) {
             case TInt: return FTInteger;
-            case TFloat: return FTReal;
+            case TFloat: return FTFloat;
             case TBool: return FTBoolean;
             case TObject, TClass(_):
                 if (Std.isOfType(value, String)) {
@@ -428,10 +620,10 @@ class Collection<T = Dynamic<Dynamic>> {
      */
     private function getSqliteType(fieldType: FieldType): String {
         return switch (fieldType) {
-            case FTInteger: "REAL";  // Use REAL for all numeric types
-            case FTReal: "REAL";
+            case FTInteger: "INTEGER";
+            case FTFloat: "REAL";
             case FTBoolean: "INTEGER";
-            case FTText, FTJson: "TEXT";
+            case FTText, FTJson, FTDate: "TEXT";
         };
     }
 
@@ -705,7 +897,7 @@ class Collection<T = Dynamic<Dynamic>> {
         }
 
         // INTEGER can be upgraded to REAL for numeric precision
-        if (cachedType == FTInteger && detectedType == FTReal) {
+        if (cachedType == FTInteger && detectedType == FTFloat) {
             return true;
         }
 
@@ -758,7 +950,13 @@ class Collection<T = Dynamic<Dynamic>> {
         return switch (fieldType) {
             case FTBoolean: value ? 1 : 0;
             case FTJson: Json.stringify(value);
-            case FTInteger, FTReal: value;
+            case FTDate:
+                if (Std.isOfType(value, Date)) {
+                    dateToUTCString(cast value);
+                } else {
+                    value;
+                }
+            case FTInteger, FTFloat: value;
             default: value;
         };
     }
@@ -780,8 +978,14 @@ class Collection<T = Dynamic<Dynamic>> {
                 } catch (e: Dynamic) {
                     value;
                 }
+            case FTDate:
+                if (Std.isOfType(value, String)) {
+                    utcStringToDate(value);
+                } else {
+                    value;
+                }
             case FTInteger: Std.int(value);
-            case FTReal: value;
+            case FTFloat: value;
             default: value;
         };
     }

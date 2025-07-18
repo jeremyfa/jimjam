@@ -1,15 +1,16 @@
-
 import jimjam.Jimjam;
 import sys.FileSystem;
 
 typedef User = {
-	> Document,
-	name: String,
-	email: String,
-	age: Int,
-	active: Bool,
-	?city: String,
-	?status: String
+    > Document,
+    name: String,
+    email: String,
+    age: Int,
+    active: Bool,
+    ?city: String,
+    ?status: String,
+    ?lastLogin: Date,
+    ?createdDate: Date
 }
 
 class Test {
@@ -19,7 +20,7 @@ class Test {
     static var currentTest: String = "";
 
     static function main() {
-		Sys.println("\n\033[1m- Jimjam Database Test Suite -\033[0m");
+        Sys.println("\n\033[1m- Jimjam Database Test Suite -\033[0m");
 
         // Clean up any existing test database
         if (FileSystem.exists("test.db")) {
@@ -41,6 +42,7 @@ class Test {
             testErrorHandling();
             testIndexOrderIndependence();
             testDataPersistence();
+            testDateHandling();
 
             // Print final results
             printResults();
@@ -92,7 +94,7 @@ class Test {
     static function testBasicOperations() {
         Sys.println("\n\033[1mTesting Basic Operations\033[0m");
 
-		// Test both typed and fully dynamic document type
+        // Test both typed and fully dynamic document type
         var users:Collection<User> = cast testDb.collection("users");
         var posts = testDb.collection("posts");
 
@@ -739,17 +741,119 @@ class Test {
         testDb = new Jimjam("test.db");
     }
 
+    static function testDateHandling() {
+        Sys.println("\n\033[1mTesting Date Handling\033[0m");
+
+        var events = testDb.collection("events");
+
+        // Test inserting documents with Date fields
+        var now = Date.now();
+        var eventId1 = events.insert({
+            name: "Conference",
+            startDate: now,
+            endDate: Date.fromTime(now.getTime() + 86400000), // +1 day
+            active: true
+        });
+
+        // Verify Date fields are stored and retrieved correctly
+        var event1 = events.findById(eventId1);
+        assertNotNull(event1, "Event should exist");
+        assertNotNull(event1.startDate, "Start date should exist");
+        assertNotNull(event1.endDate, "End date should exist");
+        assert(Std.isOfType(event1.startDate, Date), "Start date should be a Date object");
+        assert(Std.isOfType(event1.endDate, Date), "End date should be a Date object");
+
+        // Test that dates are stored as UTC (timestamp comparison)
+        assertEquals(Math.floor(now.getTime() / 1000), Math.floor(event1.startDate.getTime() / 1000),
+            "Start date timestamp should match (seconds precision)");
+
+        // Test updating Date fields
+        var newDate = Date.fromTime(now.getTime() + 172800000); // +2 days
+        events.updateById(eventId1, {endDate: newDate});
+
+        var updatedEvent = events.findById(eventId1);
+        assertEquals(Math.floor(newDate.getTime() / 1000), Math.floor(updatedEvent.endDate.getTime() / 1000),
+            "Updated end date should match (seconds precision)");
+
+        // Test querying with Date comparisons
+        var futureDate = Date.fromTime(now.getTime() + 3600000); // +1 hour
+        var pastDate = Date.fromTime(now.getTime() - 3600000); // -1 hour
+
+        var futureEvents = events.find({startDate: {_gt: futureDate}});
+        assertEquals(0, futureEvents.length, "Should find 0 future events");
+
+        var currentEvents = events.find({startDate: {_lte: now}});
+        assertEquals(1, currentEvents.length, "Should find 1 current event");
+
+        // Test Date field type persistence
+        var fieldTypes = events.getFieldTypes();
+        assert(fieldTypes.exists("startDate"), "Start date field type should exist");
+        assert(fieldTypes.exists("endDate"), "End date field type should exist");
+        assert(fieldTypes.get("startDate") == FTDate, "Start date should be DATE type");
+        assert(fieldTypes.get("endDate") == FTDate, "End date should be DATE type");
+
+        // Test schema evolution with dates
+        var eventId2 = events.insert({
+            name: "Workshop",
+            startDate: Date.now(),
+            // No end date initially
+            active: true
+        });
+
+        // Add end date later
+        events.updateById(eventId2, {endDate: Date.fromTime(Date.now().getTime() + 7200000)}); // +2 hours
+
+        var event2 = events.findById(eventId2);
+        assertNotNull(event2.endDate, "End date should be added");
+        assert(Std.isOfType(event2.endDate, Date), "Added end date should be a Date object");
+
+        // Test null date handling
+        var eventId3 = events.insert({
+            name: "TBD Event",
+            startDate: null,
+            endDate: null,
+            active: false
+        });
+
+        var event3 = events.findById(eventId3);
+        assertEquals(null, event3.startDate, "Null start date should remain null");
+        assertEquals(null, event3.endDate, "Null end date should remain null");
+
+        // Test cross-session date persistence
+        testDb.close();
+        var newDb = new Jimjam("test.db");
+        var newEvents = newDb.collection("events");
+
+        var persistedEvent = newEvents.findById(eventId1);
+        assertNotNull(persistedEvent, "Event should persist across sessions");
+        assertNotNull(persistedEvent.startDate, "Date should persist across sessions");
+        assert(Std.isOfType(persistedEvent.startDate, Date), "Persisted date should be a Date object");
+        assertEquals(Math.floor(now.getTime() / 1000), Math.floor(persistedEvent.startDate.getTime() / 1000),
+            "Persisted date timestamp should match (seconds precision)");
+
+        // Test ordering by date
+        var orderedEvents = newEvents.find({}, {orderBy: "startDate ASC"});
+        assert(orderedEvents.length >= 2, "Should have at least 2 events");
+
+        // Verify field types persist
+        var newFieldTypes = newEvents.getFieldTypes();
+        assert(newFieldTypes.get("startDate") == FTDate, "Date type should persist across sessions");
+
+        newDb.close();
+        testDb = new Jimjam("test.db");
+    }
+
     static function printResults() {
-		Sys.println("\n\033[1m- Test Results -\033[0m");
+        Sys.println("\n\033[1m- Test Results -\033[0m");
         Sys.println("Passed: " + testPassed + "/" + testTotal);
         Sys.println("Success Rate: " + Math.round((testPassed / testTotal) * 100) + "%");
 
         if (testPassed == testTotal) {
             Sys.println("🎉 All tests passed!");
-			Sys.exit(0);
+            Sys.exit(0);
         } else {
             Sys.println("❌ " + (testTotal - testPassed) + " tests failed");
-			Sys.exit(-1);
+            Sys.exit(-1);
         }
     }
 }

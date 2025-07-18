@@ -13,10 +13,10 @@
         "query",
         "json"
     ],
-    "description": "A flexible, MongoDB-style NoSQL document database built on SQLite for Haxe applications.",
-    "version": "1.0.0",
+    "description": "NoSQL Database for Haxe, built on SQLite",
+    "version": "1.1.0",
     "classPath": "src/",
-    "releasenote": "Initial release of Jimjam - MongoDB-style NoSQL document database for Haxe with SQLite backend",
+    "releasenote": "Better Date/Timestamp handling",
     "contributors": ["jeremyfa"],
     "dependencies": {}
 }
