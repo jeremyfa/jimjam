@@ -43,6 +43,7 @@ class Test {
             testIndexOrderIndependence();
             testDataPersistence();
             testDateHandling();
+            testUpsertOperations();
 
             // Print final results
             printResults();
@@ -841,6 +842,177 @@ class Test {
 
         newDb.close();
         testDb = new Jimjam("test.db");
+    }
+
+    static function testUpsertOperations() {
+        Sys.println("\n\033[1mTesting Upsert Operations\033[0m");
+
+        var inventory = testDb.collection("inventory");
+
+        // Test basic upsert - insert when document has no _id
+        var upsertId1 = inventory.upsert({
+            name: "Widget A",
+            quantity: 100,
+            price: 29.99
+        });
+
+        assert(upsertId1 > 0, "First upsert should return positive ID");
+
+        // Verify the document was inserted
+        var insertedDoc = inventory.findById(upsertId1);
+        assertNotNull(insertedDoc, "Upserted document should exist");
+        assertEquals("Widget A", insertedDoc.name, "Upserted document name should match");
+        assertEquals(100, insertedDoc.quantity, "Upserted document quantity should match");
+        assertEquals(29.99, insertedDoc.price, "Upserted document price should match");
+
+        // Test upsert - update when document has existing _id
+        var upsertId2 = inventory.upsert({
+            _id: upsertId1,
+            name: "Widget A Pro",
+            quantity: 150,
+            price: 39.99,
+            category: "electronics"
+        });
+
+        assertEquals(upsertId1, upsertId2, "Update upsert should return same ID as original document");
+
+        // Verify the document was updated
+        var updatedDoc = inventory.findById(upsertId1);
+        assertNotNull(updatedDoc, "Updated document should exist");
+        assertEquals("Widget A Pro", updatedDoc.name, "Updated document name should match");
+        assertEquals(150, updatedDoc.quantity, "Updated document quantity should match");
+        assertEquals(39.99, updatedDoc.price, "Updated document price should match");
+        assertEquals("electronics", updatedDoc.category, "Updated document should have new field");
+
+        // Test upsert with non-existent _id (should insert new document)
+        var upsertId3 = inventory.upsert({
+            _id: 99999,  // Non-existent ID
+            name: "Widget B",
+            quantity: 75,
+            price: 19.99
+        });
+
+        assert(upsertId3 > 0, "Non-existent ID upsert should return positive ID");
+        assert(upsertId3 != 99999, "Non-existent ID upsert should get new ID, not the specified one");
+
+        // Verify new document was created
+        var newDoc = inventory.findById(upsertId3);
+        assertNotNull(newDoc, "New document should exist");
+        assertEquals("Widget B", newDoc.name, "New document name should match");
+
+        // Test upsert with various data types
+        var analytics = testDb.collection("analytics");
+        var analyticsId1 = analytics.upsert({
+            type: "daily",
+            date: "2024-01-01",
+            views: 1500,
+            revenue: 2499.99,
+            active: true,
+            tags: ["marketing", "sales"],
+            metadata: {
+                source: "web",
+                campaign: "new-year"
+            }
+        });
+
+        assert(analyticsId1 > 0, "Analytics upsert should return positive ID");
+        
+        var analyticsDoc = analytics.findById(analyticsId1);
+        assertEquals(1500, analyticsDoc.views, "Analytics views should be preserved");
+        assertEquals(2499.99, analyticsDoc.revenue, "Analytics revenue should be preserved");
+        assertEquals(true, analyticsDoc.active, "Analytics boolean should be preserved");
+        assertEquals(2, analyticsDoc.tags.length, "Analytics array should be preserved");
+        assertEquals("web", analyticsDoc.metadata.source, "Analytics nested object should be preserved");
+
+        // Test upsert update by including _id
+        var analyticsId2 = analytics.upsert({
+            _id: analyticsId1,
+            views: 2000,
+            revenue: 3199.99,
+            active: false,
+            lastUpdated: Date.now()
+        });
+
+        assertEquals(analyticsId1, analyticsId2, "Analytics update should return same ID");
+        
+        var updatedAnalyticsDoc = analytics.findById(analyticsId1);
+        assertEquals(2000, updatedAnalyticsDoc.views, "Analytics views should be updated");
+        assertEquals(3199.99, updatedAnalyticsDoc.revenue, "Analytics revenue should be updated");
+        assertEquals(false, updatedAnalyticsDoc.active, "Analytics boolean should be updated");
+        assertNotNull(updatedAnalyticsDoc.lastUpdated, "Analytics should have new date field");
+
+        // Test upsert with null values
+        var settings = testDb.collection("settings");
+        var settingsId = settings.upsert({
+            key: "theme",
+            value: null,
+            description: "User theme preference"
+        });
+
+        assert(settingsId > 0, "Settings upsert should return positive ID");
+        
+        var settingsDoc = settings.findById(settingsId);
+        assertEquals(null, settingsDoc.value, "Settings null value should be preserved");
+        assertEquals("User theme preference", settingsDoc.description, "Settings description should be preserved");
+
+        // Test upsert within transactions
+        var transactionId1: Int = 0;
+        var transactionId2: Int = 0;
+        testDb.transaction(function() {
+            transactionId1 = inventory.upsert({
+                name: "Widget C",
+                quantity: 200,
+                price: 49.99,
+                category: "premium"
+            });
+
+            transactionId2 = inventory.upsert({
+                _id: transactionId1,
+                name: "Widget C Deluxe",
+                quantity: 180,
+                price: 59.99,
+                category: "premium"
+            });
+
+            assert(transactionId1 > 0, "First transaction upsert should return positive ID");
+            assertEquals(transactionId1, transactionId2, "Second transaction upsert should return same ID");
+        });
+
+        var premiumDoc = inventory.findById(transactionId1);
+        assertNotNull(premiumDoc, "Transaction upsert document should exist");
+        assertEquals("Widget C Deluxe", premiumDoc.name, "Transaction upsert should use final values");
+
+        // Test atomic behavior
+        var counters = testDb.collection("counters");
+        
+        // Insert initial counter
+        var initialId = counters.insert({name: "test", value: 0});
+        
+        // Test atomic upsert updates
+        var counterId1 = counters.upsert({
+            _id: initialId,
+            name: "test",
+            value: 10
+        });
+        
+        var counterId2 = counters.upsert({
+            _id: initialId,
+            name: "test", 
+            value: 20
+        });
+        
+        assertEquals(initialId, counterId1, "First atomic upsert should return existing document ID");
+        assertEquals(initialId, counterId2, "Second atomic upsert should return same document ID");
+        
+        var finalCounter = counters.findById(initialId);
+        assertEquals(20, finalCounter.value, "Final counter value should be from last upsert");
+
+        // Test count verification
+        var finalInventoryCount = inventory.count();
+        assertEquals(3, finalInventoryCount, "Should have 3 items in inventory after all upserts");
+
+        var finalAnalyticsCount = analytics.count();
+        assertEquals(1, finalAnalyticsCount, "Should have 1 analytics record after upserts");
     }
 
     static function printResults() {

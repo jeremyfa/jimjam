@@ -77,6 +77,13 @@ class QuickStart {
             loginCount: 1
         });
 
+        // Upsert (insert or update)
+        var settingsId = users.upsert({
+            type: "preferences",
+            theme: "dark",
+            notifications: true
+        });
+
         // Multi-collection transaction
         db.transaction(function() {
             var postId = posts.insert({
@@ -553,6 +560,40 @@ users.updateById(userId, {
     lastLogin: Date.now(),
     loginCount: user.loginCount + 1
 });
+```
+
+#### upsert()
+
+```haxe
+public function upsert(doc: Document): Int
+```
+
+Atomically inserts a document if it doesn't exist, or updates it if it does exist. If the document has an `_id` field, it will update that document; otherwise, it will insert a new document. Returns the ID of the document (existing ID if updated, new ID if inserted). The operation uses transactions internally to ensure atomicity and prevent race conditions.
+
+```haxe
+// Insert new user (no _id field)
+var userId = users.upsert({
+    email: "alice@example.com",
+    name: "Alice Johnson",
+    active: true
+});
+
+// Update existing user (include _id field)
+users.upsert({
+    _id: userId,
+    email: "alice@example.com",
+    name: "Alice Smith",  // Updated name
+    active: true,
+    lastSeen: Date.now()
+});
+
+// If you specify a non-existent _id, it inserts a new document
+var newId = users.upsert({
+    _id: 99999,  // Non-existent ID
+    name: "Bob",
+    email: "bob@example.com"
+});
+// newId will be a new auto-generated ID, not 99999
 ```
 
 #### delete()

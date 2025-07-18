@@ -74,9 +74,6 @@ class Jimjam {
         this.dbPath = dbPath;
         this.connection = Sqlite.open(dbPath);
         this.collections = new Map();
-
-        // Enable foreign keys
-        connection.request("PRAGMA foreign_keys = ON");
     }
 
     /**
@@ -273,8 +270,6 @@ class Jimjam {
         } catch (e: Dynamic) {
         }
         connection = Sqlite.open(dbPath);
-        // Re-enable foreign keys
-        connection.request("PRAGMA foreign_keys = ON");
         #end
     }
 }
@@ -339,21 +334,6 @@ class Collection<T = Dynamic<Dynamic>> {
 
         // Add days to get actual date
         var daysRemaining = days;
-
-        // Leap year calculation
-        function isLeapYear(y: Int): Bool {
-            return (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0);
-        }
-
-        // Days in month
-        function daysInMonth(m: Int, y: Int): Int {
-            return switch(m) {
-                case 1, 3, 5, 7, 8, 10, 12: 31;
-                case 4, 6, 9, 11: 30;
-                case 2: isLeapYear(y) ? 29 : 28;
-                default: 0;
-            }
-        }
 
         // Calculate year
         while (true) {
@@ -1381,6 +1361,56 @@ class Collection<T = Dynamic<Dynamic>> {
         }
 
         return rows.length > 0 ? rows[0].count : 0;
+    }
+
+    /**
+     * Atomically inserts a document if it doesn't exist, or updates it if it does exist
+     * If the document has an _id field, it will update that document
+     * Otherwise, it will insert a new document
+     *
+     * @param doc The document to upsert
+     * @return The ID of the document (existing ID if updated, new ID if inserted)
+     */
+    public function upsert(doc: T): Int {
+        ensureColumns(doc);
+
+        var wasInTransaction = db.inTransaction;
+        var resultId: Int = 0;
+
+        function performUpsert() {
+            // Check if document has an _id field
+            var docId = Reflect.field(doc, "_id");
+
+            if (docId != null && Std.isOfType(docId, Int)) {
+                // Document has ID, try to update existing document
+                var existingDoc = findById(docId);
+
+                if (existingDoc != null) {
+                    // Document exists, update it
+                    updateById(docId, doc);
+                    resultId = docId;
+                } else {
+                    // ID specified but document doesn't exist, insert with that ID
+                    // Remove _id from doc for insertion since insert() will assign it
+                    var docCopy = Reflect.copy(doc);
+                    Reflect.deleteField(docCopy, "_id");
+                    resultId = insert(docCopy);
+                }
+            } else {
+                // No ID specified, just insert new document
+                resultId = insert(doc);
+            }
+        }
+
+        if (wasInTransaction) {
+            // Already in transaction, just perform the operation
+            performUpsert();
+        } else {
+            // Start our own transaction for atomicity
+            db.transaction(performUpsert);
+        }
+
+        return resultId;
     }
 
     /**
