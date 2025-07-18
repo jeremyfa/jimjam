@@ -14,9 +14,9 @@
         "json"
     ],
     "description": "NoSQL Database for Haxe, built on SQLite",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "classPath": "src/",
-    "releasenote": "Better Date/Timestamp handling",
+    "releasenote": "Add upsert() method",
     "contributors": ["jeremyfa"],
     "dependencies": {}
 }
