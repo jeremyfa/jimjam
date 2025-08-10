@@ -1,0 +1,80 @@
+name: Test Suite
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-php:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Haxe
+      uses: krdlab/setup-haxe@v1
+      with:
+        haxe-version: 4.3.7
+    
+    - name: Install dependencies
+      run: |
+        haxelib install hxcpp
+        haxelib dev jimjam .
+    
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.2'
+        extensions: sqlite3
+    
+    - name: Build PHP target
+      run: haxe build-php.hxml
+    
+    - name: Run PHP tests
+      run: php bin/php/index.php
+
+  test-cpp:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Haxe
+      uses: krdlab/setup-haxe@v1
+      with:
+        haxe-version: 4.3.7
+    
+    - name: Install dependencies
+      run: |
+        haxelib install hxcpp
+        haxelib dev jimjam .
+    
+    - name: Build C++ target
+      run: haxe build-cpp.hxml
+    
+    - name: Run C++ tests
+      run: ./bin/cpp/Test
+
+  test-cppia:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Haxe
+      uses: krdlab/setup-haxe@v1
+      with:
+        haxe-version: 4.3.7
+    
+    - name: Install dependencies
+      run: |
+        haxelib install hxcpp
+        haxelib dev jimjam .
+    
+    - name: Build CPPIA target
+      run: haxe build-cppia.hxml
+    
+    - name: Run CPPIA tests
+      run: haxelib run hxcpp bin/test.cppia
